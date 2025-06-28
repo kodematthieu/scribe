@@ -11,7 +11,6 @@ pub enum FileTree {
 }
 impl FileTree {
     pub fn new(root: &Path, walker: ignore::Walk) -> Result<Self, ignore::Error> {
-        let root_name = root.file_name().unwrap_or(root.as_os_str()).to_os_string();
         let mut root_children = BTreeMap::new();
 
         // The first entry is the root itself; skip it.
@@ -56,28 +55,34 @@ impl FileTree {
             Self::Leaf => 1,
         }
     }
-    pub fn visit_files<F, T>(&self, mut f: F, mut ctx: T)
+    pub fn visit_files<F, T, E>(&self, mut f: F, mut ctx: T) -> Result<(), E>
     where
-        F: FnMut(&mut T, &Path),
+        F: FnMut(&mut T, &Path) -> Result<(), E>,
     {
-        self.visit_files_recursive(&mut f, &mut ctx, PathBuf::new());
+        self.visit_files_recursive(&mut f, &mut ctx, PathBuf::new())
     }
 
-    fn visit_files_recursive<F, T>(&self, f: &mut F, ctx: &mut T, current_path: PathBuf)
+    fn visit_files_recursive<F, T, E>(
+        &self,
+        f: &mut F,
+        ctx: &mut T,
+        current_path: PathBuf,
+    ) -> Result<(), E>
     where
-        F: FnMut(&mut T, &Path),
+        F: FnMut(&mut T, &Path) -> Result<(), E>,
     {
         match self {
             Self::Leaf => {
-                f(ctx, &current_path);
+                f(ctx, &current_path)?;
             }
             Self::Node(children) => {
                 for (name, node) in children {
                     let new_path = current_path.join(name);
-                    node.visit_files_recursive(f, ctx, new_path);
+                    node.visit_files_recursive(f, ctx, new_path)?;
                 }
             }
         }
+        Ok(())
     }
     pub fn display<W: io::Write>(&self, root_name: &OsStr, writer: &mut W) -> io::Result<()> {
         match self {
