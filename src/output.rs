@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{self, BufRead, BufReader},
+    io::{self, BufRead, BufReader, Seek},
     path::Path,
 };
 
@@ -20,29 +20,49 @@ fn format_file(root: &Path, relative_path: &Path, writer: &mut impl io::Write) -
         relative_path.to_string_lossy().replace('\\', "/")
     )?;
 
-    match File::open(full_path) {
-        Ok(file) => {
-            let reader = BufReader::new(file);
-            let lines: Vec<String> = match reader.lines().collect() {
-                Ok(lines) => lines,
-                Err(e) => return Err(e), // Propagate I/O errors during read.
-            };
+    match File::open(&full_path) {
+        Ok(mut file) => {
+            // PASS 1: Validate file content is UTF-8 and count lines.
+            // This avoids allocating memory for the whole file.
+            let mut line_count: usize = 0;
+            let mut is_binary = false;
+            {
+                let reader = BufReader::new(&mut file);
+                for line in reader.lines() {
+                    if line.is_err() {
+                        is_binary = true;
+                        break;
+                    }
+                    line_count += 1;
+                }
+            } // `reader` is dropped here, releasing the mutable borrow on `file`.
 
-            let total_lines = lines.len();
-            let width = if total_lines == 0 {
-                1
+            if is_binary {
+                writeln!(
+                    writer,
+                    "   * [Could not read file content (likely binary or permission error)]"
+                )?;
             } else {
-                total_lines.ilog10() as usize + 1
-            };
+                // PASS 2: Rewind file and print with correct line number padding.
+                file.seek(io::SeekFrom::Start(0))?;
+                let reader = BufReader::new(file);
 
-            for (i, line) in lines.iter().enumerate() {
-                let line_num = i + 1;
-                // Use the calculated `width` to format the line number.
-                // The `width = width` syntax passes the variable to the formatter.
-                writeln!(writer, "{: >width$} {}", line_num, line)?;
+                let width = if line_count == 0 {
+                    1
+                } else {
+                    line_count.ilog10() as usize + 1
+                };
+
+                // This re-read is safe because we validated the content in pass 1.
+                for (i, line_result) in reader.lines().enumerate() {
+                    let line = line_result.unwrap();
+                    let line_num = i + 1;
+                    writeln!(writer, "{: >width$} {}", line_num, line, width = width)?;
+                }
             }
         }
         Err(_) => {
+            // Catches file open errors (e.g., permissions).
             writeln!(
                 writer,
                 "   * [Could not read file content (likely binary or permission error)]"
