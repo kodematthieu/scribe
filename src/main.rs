@@ -16,7 +16,16 @@ struct Command {
     output: Option<PathBuf>,
 }
 
-fn main() -> io::Result<()> {
+fn main() {
+    if let Err(e) = run() {
+        if e.kind() != io::ErrorKind::BrokenPipe {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run() -> io::Result<()> {
     let args = Command::parse();
     let mut walker = WalkBuilder::new(&args.target);
 
