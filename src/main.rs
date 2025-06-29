@@ -2,7 +2,7 @@ use std::{fs::File, io, path::PathBuf};
 
 use clap::Parser;
 use filetree::FileTree;
-use ignore::{WalkBuilder, overrides::OverrideBuilder};
+use ignore::WalkBuilder;
 
 mod filetree;
 mod output;
@@ -20,8 +20,16 @@ fn main() -> io::Result<()> {
     let args = Command::parse();
     let mut walker = WalkBuilder::new(&args.target);
 
-    if let Some(ref path) = args.output {
-        walker.overrides(OverrideBuilder::new(path).build().unwrap());
+    let output_path_abs = if let Some(p) = &args.output {
+        p.canonicalize().ok()
+    } else {
+        None
+    };
+
+    if let Some(output_abs) = output_path_abs {
+        walker.filter_entry(move |entry| {
+            entry.path().canonicalize().ok() != Some(output_abs.clone())
+        });
     }
 
     let tree = FileTree::new(&args.target, walker.build()).unwrap();
