@@ -14,7 +14,7 @@ struct Command {
 
     #[arg(long, short, name = "FILE_NAME")]
     output: Option<PathBuf>,
- 
+
     #[arg(long, short, name = "EXCLUDE_PATTERN")]
     exclude: Vec<String>,
 
