@@ -2,7 +2,7 @@ use std::{fs::File, io, path::PathBuf};
 
 use clap::Parser;
 use filetree::FileTree;
-use ignore::WalkBuilder;
+use ignore::{WalkBuilder, overrides::OverrideBuilder};
 
 mod filetree;
 mod output;
@@ -14,6 +14,12 @@ struct Command {
 
     #[arg(long, short, name = "FILE_NAME")]
     output: Option<PathBuf>,
+ 
+    #[arg(long, short, name = "EXCLUDE_PATTERN")]
+    exclude: Vec<String>,
+
+    #[arg(long, short, name = "INCLUDE_PATTERN")]
+    include: Vec<String>,
 }
 
 fn main() {
@@ -28,6 +34,28 @@ fn main() {
 fn run() -> io::Result<()> {
     let args = Command::parse();
     let mut walker = WalkBuilder::new(&args.target);
+    walker.add_custom_ignore_filename(".scribeignore");
+
+    let mut override_builder = OverrideBuilder::new(&args.target);
+
+    if !args.include.is_empty() {
+        walker.add_custom_ignore_filename(".gitignore");
+        walker.ignore(false);
+        walker.require_git(false);
+
+        for pattern in &args.include {
+            override_builder.add(pattern).unwrap();
+        }
+    }
+
+    for pattern in &args.exclude {
+        let mut glob = String::from("!");
+        glob.push_str(pattern);
+        override_builder.add(&glob).unwrap();
+    }
+
+    let overrides = override_builder.build().unwrap();
+    walker.overrides(overrides);
 
     let output_path_abs = if let Some(p) = &args.output {
         p.canonicalize().ok()
