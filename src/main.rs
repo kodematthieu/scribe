@@ -20,6 +20,9 @@ struct Command {
 
     #[arg(long, short, name = "INCLUDE_PATTERN")]
     include: Vec<String>,
+
+    #[arg(long)]
+    rebase: bool,
 }
 
 fn main() {
@@ -33,17 +36,52 @@ fn main() {
 
 fn run() -> io::Result<()> {
     let args = Command::parse();
+    let mut includes = args.include;
+
+    if args.rebase {
+        let output = std::process::Command::new("git")
+            .args(["status", "--porcelain=v1"])
+            .output()?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("'git status' failed: {}", stderr),
+            ));
+        }
+
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        for line in stdout.lines() {
+            if line.len() < 3 {
+                continue;
+            }
+            let status = &line[0..2];
+            if status == "!!" || status == "??" {
+                continue;
+            }
+
+            if status.as_bytes()[0] != b' ' {
+                let path = &line[3..];
+                // The path might be a rename `path1 -> path2`. We want the final path.
+                let path = path.split(" -> ").last().unwrap();
+                // Paths with spaces are quoted.
+                let path = path.trim_matches('"');
+                includes.push(path.to_string());
+            }
+        }
+    }
     let mut walker = WalkBuilder::new(&args.target);
     walker.add_custom_ignore_filename(".scribeignore");
 
     let mut override_builder = OverrideBuilder::new(&args.target);
 
-    if !args.include.is_empty() {
+    if !includes.is_empty() {
         walker.add_custom_ignore_filename(".gitignore");
         walker.ignore(false);
         walker.require_git(false);
 
-        for pattern in &args.include {
+        for pattern in &includes {
             override_builder.add(pattern).unwrap();
         }
     }
